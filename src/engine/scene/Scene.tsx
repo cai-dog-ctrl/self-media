@@ -4,6 +4,7 @@ import type { BattleScript } from "../types";
 import { usePlayback } from "../playback";
 import { createTerrainHeight, TerrainHeightProvider } from "../terrain";
 import Terrain from "./Terrain";
+import MapLayer from "./MapLayer";
 import Armies from "./Armies";
 import MarchLines from "./MarchLines";
 import ClashEffects from "./ClashEffects";
@@ -40,6 +41,7 @@ export default function Scene({ script }: { script: BattleScript }) {
       />
 
       <Terrain config={script.terrain} landmarks={script.landmarks} />
+      {script.map && <MapLayer features={script.map} />}
       <MarchLines script={script} />
       <Armies script={script} />
       <ClashEffects script={script} />

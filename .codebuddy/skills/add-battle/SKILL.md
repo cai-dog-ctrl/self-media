@@ -23,14 +23,14 @@ description: 向「华夏战纪」历史战役 3D 沙盘项目添加一场新的
 
 从用户消息与史实中整理：战役名、朝代/年份、双方势力（名称与代表色）、兵力构成、关键阶段（按时间）、主要交战点、地理特征（河流、山脉、城防）。用户提供的信息不全时，基于公认史实合理拟定，并在最终交付说明中标注哪些内容为示意性推定。
 
-### 2. 确定战役 id
+### 2. 确定战役 id 与剧本形态
 
-- kebab-case 英文，如 `guiling`、`chi bi` 应为 `chibi`
-- 检查 `src/data/battles/` 下不存在同名文件
+- id：kebab-case 英文，如 `guiling`、`chibi`；检查 `src/data/battles/` 下不存在同名文件
+- 剧本形态：有真实经纬度的近现代战役用 **Geo 剧本**（导出 `geoScript: GeoBattleScript`，MapLibre 真实底图沙盘推演视图）；古代或示意地理战役用 **3D 沙盘剧本**（导出 `script: BattleScript`）。字段差异见 `references/schema.md`
 
 ### 3. 创建剧本文件
 
-新建 `src/data/battles/<id>.ts`，导出 `export const script: BattleScript`（从 `../../engine/types` 导入类型）。字段写法参照 `references/schema.md`，可参考现有剧本 `src/data/battles/changping.ts`。
+新建 `src/data/battles/<id>.ts`，按所选形态导出 `export const script: BattleScript`（从 `../../engine/types` 导入类型）或 `export const geoScript: GeoBattleScript`。字段写法参照 `references/schema.md`，可参考现有剧本 `src/data/battles/changping.ts`（3D）与 `src/data/battles/huaihai.ts`（Geo）。
 
 ### 4. 登记目录
 
@@ -62,3 +62,4 @@ description: 向「华夏战纪」历史战役 3D 沙盘项目添加一场新的
 - `duration` 单位是"日"，回放时 1x 速度每秒推进 4 日；百日级战役 duration 控制在 120~240 之间观感较好
 - 地形 `seed: 0` 为引擎默认地形；换任意整数 seed 生成全新地形。调完地形后需同步检查各 unit 落点不在深水里
 - `river` 走向为 `z = x * slope + offset`，用于让行军线与营地避开河谷时可先算好再写坐标
+- 需要真实地理时使用 `script.map`（河流/湖泊/铁路/城镇）叠加真实地图底图，并配合大范围 `flatSpots` 压平地形；坐标建议在剧本内定义经纬度投影辅助函数书写（写法见 `references/schema.md` 与 `src/data/battles/huaihai.ts`）

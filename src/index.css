@@ -185,6 +185,501 @@ body,
   transform: translateY(-4px);
 }
 
+/* ---------- 地图要素标签 ---------- */
+.city-label {
+  color: #d6c9a8;
+  font-size: 10px;
+  white-space: nowrap;
+  letter-spacing: 1px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
+  pointer-events: none;
+  user-select: none;
+}
+
+.map-label {
+  color: #9fb6bf;
+  font-size: 10px;
+  white-space: nowrap;
+  letter-spacing: 2px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.95);
+  pointer-events: none;
+  user-select: none;
+}
+
+/* ---------- MapLibre 沙盘推演视图 ---------- */
+/* 两级选择器：特异性高于 maplibre-gl.css 的 .maplibregl-map（position: relative） */
+.app .map-container {
+  position: absolute;
+  inset: 0;
+}
+
+.map-container .maplibregl-ctrl-attrib {
+  background: rgba(12, 15, 22, 0.7);
+  color: #9c917a;
+  font-size: 10px;
+}
+
+.unit-marker {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  pointer-events: auto;
+  cursor: pointer;
+  user-select: none;
+}
+
+.unit-marker.selected .unit-pin {
+  box-shadow:
+    0 0 0 3px rgba(201, 165, 92, 0.9),
+    0 1px 4px rgba(0, 0, 0, 0.7);
+}
+
+.unit-marker.selected .unit-tag {
+  text-decoration: underline;
+}
+
+.unit-pin {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.55),
+    0 1px 4px rgba(0, 0, 0, 0.7);
+  flex-shrink: 0;
+}
+
+.unit-tag {
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  letter-spacing: 0.5px;
+  text-shadow:
+    0 0 2px #fff,
+    0 0 3px #fff,
+    0 0 5px #fff;
+}
+
+/* ---------- 态势推演 HUD ---------- */
+.map-topbar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  background: rgba(8, 10, 14, 0.88);
+  border-bottom: 1px solid rgba(232, 220, 192, 0.15);
+  backdrop-filter: blur(8px);
+  color: #e8dcc0;
+}
+
+.tb-left,
+.tb-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.tb-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 2px;
+  white-space: nowrap;
+}
+
+.tb-era {
+  font-size: 11px;
+  color: #9c917a;
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+
+.tb-phase {
+  font-size: 12px;
+  color: #c9a55c;
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+
+.tb-clock {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 1px;
+}
+
+.tb-day {
+  font-size: 12px;
+  color: #b7a98a;
+  font-variant-numeric: tabular-nums;
+}
+
+.map-panel {
+  position: absolute;
+  top: 56px;
+  bottom: 66px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(201, 165, 92, 0.4) transparent;
+}
+
+.map-panel::-webkit-scrollbar {
+  width: 4px;
+}
+
+.map-panel::-webkit-scrollbar-thumb {
+  background: rgba(201, 165, 92, 0.4);
+  border-radius: 2px;
+}
+
+.map-left {
+  left: 12px;
+  width: 250px;
+}
+
+.map-right {
+  right: 12px;
+  width: 290px;
+}
+
+.hud-section {
+  background: rgba(10, 13, 19, 0.82);
+  border: 1px solid rgba(232, 220, 192, 0.16);
+  border-radius: 10px;
+  padding: 10px 12px;
+  backdrop-filter: blur(8px);
+  color: #e8dcc0;
+  flex-shrink: 0;
+}
+
+.hud-section.grow {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.hud-section h3 {
+  font-size: 11px;
+  font-weight: 600;
+  color: #c9a55c;
+  letter-spacing: 2px;
+  margin-bottom: 8px;
+}
+
+.brief-body .brief-date {
+  font-size: 10px;
+  color: #b7a98a;
+  letter-spacing: 1px;
+}
+
+.brief-body .brief-title {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  margin: 3px 0 5px;
+}
+
+.brief-body .brief-detail {
+  font-size: 11px;
+  line-height: 1.7;
+  color: #b7a98a;
+}
+
+.pacs-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pacs-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 5px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.pacs-row:hover {
+  background: rgba(201, 165, 92, 0.12);
+}
+
+.pacs-row.active {
+  background: rgba(201, 165, 92, 0.28);
+}
+
+.pacs-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.pacs-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pacs-status {
+  font-size: 10px;
+  color: #6f6a5c;
+  flex-shrink: 0;
+}
+
+.pacs-status.in {
+  color: #8fbf78;
+}
+
+.weather-btns {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.weather-tint {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  pointer-events: none;
+  transition: background 0.6s;
+}
+
+.weather-clear {
+  background: transparent;
+}
+
+.weather-overcast {
+  background: rgba(40, 45, 55, 0.28);
+}
+
+.weather-rain {
+  background: rgba(28, 42, 64, 0.35);
+}
+
+.weather-fog {
+  background: rgba(205, 205, 200, 0.3);
+}
+
+.weather-snow {
+  background: rgba(225, 232, 240, 0.28);
+}
+
+.unit-detail {
+  font-size: 12px;
+}
+
+.unit-detail.empty {
+  color: #6f6a5c;
+  text-align: center;
+  padding: 14px 0;
+  line-height: 1.8;
+  font-size: 12px;
+}
+
+.detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.detail-faction {
+  font-size: 10px;
+  color: #fff;
+  padding: 2px 8px;
+  border-radius: 4px;
+  letter-spacing: 1px;
+}
+
+.detail-close {
+  background: none;
+  border: none;
+  color: #6f6a5c;
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.detail-name {
+  font-size: 14px;
+  letter-spacing: 1px;
+  margin-bottom: 6px;
+}
+
+.detail-brief {
+  color: #b7a98a;
+  line-height: 1.7;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  font-size: 11px;
+}
+
+.detail-grid span:nth-child(odd) {
+  color: #6f6a5c;
+}
+
+.detail-grid span:nth-child(even) {
+  color: #e8dcc0;
+}
+
+.detail-actions-title {
+  color: #c9a55c;
+  font-size: 11px;
+  letter-spacing: 1px;
+  margin: 8px 0 4px;
+}
+
+.detail-actions ul {
+  list-style: none;
+  padding: 0;
+}
+
+.detail-actions li {
+  font-size: 11px;
+  color: #b7a98a;
+  line-height: 1.7;
+  padding-left: 10px;
+  position: relative;
+}
+
+.detail-actions li::before {
+  content: "·";
+  position: absolute;
+  left: 0;
+  color: #c9a55c;
+}
+
+.combat-log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(201, 165, 92, 0.4) transparent;
+}
+
+.combat-log::-webkit-scrollbar {
+  width: 4px;
+}
+
+.combat-log::-webkit-scrollbar-thumb {
+  background: rgba(201, 165, 92, 0.4);
+  border-radius: 2px;
+}
+
+.log-empty {
+  color: #6f6a5c;
+  padding: 8px 0;
+}
+
+.log-row {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+
+.log-day {
+  color: #6f6a5c;
+  font-size: 10px;
+  min-width: 34px;
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.log-text {
+  color: #b7a98a;
+  line-height: 1.55;
+}
+
+.log-text b {
+  color: #e8dcc0;
+}
+
+.map-bottombar {
+  position: absolute;
+  left: 274px;
+  right: 314px;
+  bottom: 14px;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(8, 10, 14, 0.88);
+  border: 1px solid rgba(232, 220, 192, 0.16);
+  border-radius: 12px;
+  padding: 7px 10px;
+  backdrop-filter: blur(8px);
+}
+
+.map-bottombar .btn.primary {
+  background: rgba(201, 165, 92, 0.5);
+}
+
+.map-bottombar .btn.voice-on {
+  border-color: rgba(143, 191, 120, 0.7);
+  color: #a8d49a;
+}
+
+.phase-tabs {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.phase-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.phase-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: #6f6a5c;
+  font-size: 11px;
+  padding: 4px 8px;
+  cursor: pointer;
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+
+.phase-tab:hover {
+  color: #b7a98a;
+}
+
+.phase-tab.active {
+  color: #c9a55c;
+  border-bottom-color: #c9a55c;
+}
+
+.map-bottombar .speed-group {
+  margin-left: 0;
+}
+
 /* ---------- 返回按钮 ---------- */
 .back-btn {
   pointer-events: auto;

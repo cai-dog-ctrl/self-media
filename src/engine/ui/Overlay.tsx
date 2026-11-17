@@ -1,10 +1,27 @@
-import type { BattleScript } from "../../engine/types";
+import type {
+  BattleMap,
+  FactionInfo,
+  Landmark,
+  PhaseEvent,
+} from "../../engine/types";
 import { usePlayback } from "../../engine/playback";
+import { MAP_COLORS } from "../scene/MapLayer";
 import { navigate } from "../../router";
 
 const SPEEDS = [0.5, 1, 2, 4];
 
-export default function Overlay({ script }: { script: BattleScript }) {
+/** Overlay 所需的剧本信息（3D 沙盘剧本与 Geo 剧本均满足此结构） */
+export interface OverlayScriptInfo {
+  name: string;
+  era: string;
+  duration: number;
+  factions: Record<string, FactionInfo>;
+  events: PhaseEvent[];
+  landmarks?: Landmark[];
+  map?: BattleMap;
+}
+
+export default function Overlay({ script }: { script: OverlayScriptInfo }) {
   const time = usePlayback((s) => s.time);
   const playing = usePlayback((s) => s.playing);
   const speed = usePlayback((s) => s.speed);
@@ -36,12 +53,28 @@ export default function Overlay({ script }: { script: BattleScript }) {
             {f.name}
           </div>
         ))}
-        {script.landmarks.map((l) => (
+        {script.landmarks?.map((l) => (
           <div className="item" key={l.id}>
             <span className="dot" style={{ background: l.color }} />
             {l.label}
           </div>
         ))}
+        {script.map && (
+          <>
+            <div className="item">
+              <span className="dot" style={{ background: MAP_COLORS.river }} />
+              河流 · 湖泊
+            </div>
+            <div className="item">
+              <span className="dot" style={{ background: MAP_COLORS.railwayBase }} />
+              铁路
+            </div>
+            <div className="item">
+              <span className="dot" style={{ background: MAP_COLORS.city }} />
+              城镇
+            </div>
+          </>
+        )}
       </aside>
 
       <div className="console">
