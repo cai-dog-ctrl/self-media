@@ -1,8 +1,8 @@
 import { useMemo } from "react";
 import * as THREE from "three";
-import { terrainHeight } from "./terrainNoise";
+import type { Landmark, TerrainConfig, TerrainHeightFn } from "../types";
+import { useTerrainHeight } from "../terrain";
 
-const TERRAIN_SIZE = 260;
 const SEGMENTS = 160;
 
 /** 按高程着色：水下沙 → 岸滩 → 平原 → 丘陵 → 山岩 */
@@ -27,16 +27,18 @@ const colorAt = (h: number): THREE.Color => {
   return new THREE.Color(stops[stops.length - 1][1]);
 };
 
-function TerrainMesh() {
+function TerrainMesh({ size }: { size: number }) {
+  const height = useTerrainHeight();
+
   const geometry = useMemo(() => {
-    const geo = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, SEGMENTS, SEGMENTS);
+    const geo = new THREE.PlaneGeometry(size, size, SEGMENTS, SEGMENTS);
     geo.rotateX(-Math.PI / 2);
     const pos = geo.attributes.position as THREE.BufferAttribute;
     const colors = new Float32Array(pos.count * 3);
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i);
       const z = pos.getZ(i);
-      const h = terrainHeight(x, z);
+      const h = height(x, z);
       pos.setY(i, h);
       const c = colorAt(h);
       colors[i * 3] = c.r;
@@ -46,7 +48,7 @@ function TerrainMesh() {
     geo.setAttribute("color", new THREE.BufferAttribute(colors, 3));
     geo.computeVertexNormals();
     return geo;
-  }, []);
+  }, [size, height]);
 
   return (
     <mesh geometry={geometry} receiveShadow>
@@ -55,10 +57,10 @@ function TerrainMesh() {
   );
 }
 
-function Water() {
+function Water({ size }: { size: number }) {
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -1.0, 0]}>
-      <planeGeometry args={[TERRAIN_SIZE, TERRAIN_SIZE]} />
+      <planeGeometry args={[size, size]} />
       <meshStandardMaterial
         color="#1e3a5f"
         transparent
@@ -71,45 +73,55 @@ function Water() {
 }
 
 /** 沙盘底座，形成 diorama 观感 */
-function Base() {
+function Base({ size }: { size: number }) {
   return (
     <mesh position={[0, -8, 0]}>
-      <boxGeometry args={[TERRAIN_SIZE, 8, TERRAIN_SIZE]} />
+      <boxGeometry args={[size, 8, size]} />
       <meshStandardMaterial color="#1a2030" roughness={1} />
     </mesh>
   );
 }
 
-/** 赵军百里石长城（示意） */
-function GreatWall() {
+/** 城墙类地标：沿 z 方向排布的石砌墙体 */
+function Wall({ landmark, height }: { landmark: Landmark; height: TerrainHeightFn }) {
   const blocks = useMemo(() => {
     const list: Array<{ x: number; y: number; z: number }> = [];
-    for (let z = -52; z <= 52; z += 4) {
-      const x = 32;
-      list.push({ x, y: terrainHeight(x, z) + 1.3, z });
+    for (let z = landmark.zFrom; z <= landmark.zTo; z += 4) {
+      const x = landmark.x;
+      list.push({ x, y: height(x, z) + 1.3, z });
     }
     return list;
-  }, []);
+  }, [landmark, height]);
 
   return (
     <group>
       {blocks.map((b, i) => (
         <mesh key={i} position={[b.x, b.y, b.z]} castShadow>
           <boxGeometry args={[1.6, 2.8, 4.1]} />
-          <meshStandardMaterial color="#9a927f" roughness={0.9} />
+          <meshStandardMaterial color={landmark.color} roughness={0.9} />
         </mesh>
       ))}
     </group>
   );
 }
 
-export default function Terrain() {
+export default function Terrain({
+  config,
+  landmarks,
+}: {
+  config: TerrainConfig;
+  landmarks: Landmark[];
+}) {
+  const height = useTerrainHeight();
+
   return (
     <group>
-      <TerrainMesh />
-      <Water />
-      <Base />
-      <GreatWall />
+      <TerrainMesh size={config.size} />
+      <Water size={config.size} />
+      <Base size={config.size} />
+      {landmarks.map((l) =>
+        l.type === "wall" ? <Wall key={l.id} landmark={l} height={height} /> : null
+      )}
     </group>
   );
 }

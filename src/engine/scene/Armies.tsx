@@ -3,8 +3,8 @@ import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
 import { Html } from "@react-three/drei";
 import type { BattleScript, Unit } from "../types";
-import { usePlayback } from "../store";
-import { terrainHeight } from "./terrainNoise";
+import { usePlayback } from "../playback";
+import { useTerrainHeight } from "../terrain";
 
 /** 求单位在时刻 t 的平面坐标（分段线性插值） */
 export function unitPositionAt(unit: Unit, time: number): [number, number] {
@@ -25,11 +25,12 @@ export function unitPositionAt(unit: Unit, time: number): [number, number] {
 
 function UnitMarker({ unit, color }: { unit: Unit; color: string }) {
   const group = useRef<THREE.Group>(null!);
+  const height = useTerrainHeight();
 
   useFrame(() => {
     const { time } = usePlayback.getState();
     const [x, z] = unitPositionAt(unit, time);
-    const y = terrainHeight(x, z);
+    const y = height(x, z);
     group.current.position.set(x, y, z);
     group.current.visible = unit.appearAfter === undefined || time >= unit.appearAfter;
   });

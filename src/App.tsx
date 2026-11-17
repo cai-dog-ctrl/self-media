@@ -1,27 +1,23 @@
-import { useEffect } from "react";
-import { Canvas } from "@react-three/fiber";
-import Scene from "./scene/Scene";
-import Overlay from "./ui/Overlay";
-import { changping } from "./data/changping";
-import { usePlayback } from "./store";
+import { navigate, useHashRoute } from "./router";
+import BattleList from "./pages/BattleList";
+import BattleView from "./pages/BattleView";
 
 export default function App() {
-  const setDuration = usePlayback((s) => s.setDuration);
+  const route = useHashRoute();
 
-  useEffect(() => {
-    setDuration(changping.duration);
-  }, [setDuration]);
-
-  return (
-    <div className="app">
-      <Canvas
-        shadows
-        dpr={[1, 2]}
-        camera={{ position: [-120, 95, 120], fov: 50, near: 0.5, far: 1500 }}
-      >
-        <Scene script={changping} />
-      </Canvas>
-      <Overlay script={changping} />
-    </div>
-  );
+  switch (route.name) {
+    case "list":
+      return <BattleList />;
+    case "battle":
+      return <BattleView id={route.id} />;
+    case "notFound":
+      return (
+        <div className="center-msg">
+          <div>页面不存在：#{route.path}</div>
+          <button className="btn" onClick={() => navigate("/")}>
+            返回列表
+          </button>
+        </div>
+      );
+  }
 }

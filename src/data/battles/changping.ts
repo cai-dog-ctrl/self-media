@@ -1,11 +1,12 @@
-import type { BattleScript } from "../types";
+import type { BattleScript } from "../../engine/types";
 
 /**
  * 长平之战（前 262 — 前 260 年）示意沙盘脚本。
  * 地形与坐标为示意化处理，非精确史实地理复原；
  * 正式内容需接入经过考证与审图的历史地理数据。
  */
-export const changping: BattleScript = {
+export const script: BattleScript = {
+  schemaVersion: 1,
   id: "changping",
   name: "长平之战",
   era: "战国 · 秦昭襄王四十七年",
@@ -15,6 +16,24 @@ export const changping: BattleScript = {
     qin: { name: "秦军", color: "#c0392b" },
     zhao: { name: "赵军", color: "#3a6ea5" },
   },
+  terrain: {
+    size: 260,
+    seed: 0,
+    relief: 10,
+    river: { slope: 0.15, offset: 0, width: 16, depth: 5 },
+    flatSpots: [{ x: 20, z: 0, rx: 70, rz: 55, strength: 0.55 }],
+  },
+  landmarks: [
+    {
+      id: "zhao_stone_wall",
+      type: "wall",
+      label: "石长城（示意）",
+      color: "#9a927f",
+      x: 32,
+      zFrom: -52,
+      zTo: 52,
+    },
+  ],
   units: [
     {
       id: "qin_main",

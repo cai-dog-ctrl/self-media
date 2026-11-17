@@ -2,8 +2,8 @@ import { useRef } from "react";
 import * as THREE from "three";
 import { useFrame } from "@react-three/fiber";
 import type { BattleScript, ClashEvent } from "../types";
-import { usePlayback } from "../store";
-import { terrainHeight } from "./terrainNoise";
+import { usePlayback } from "../playback";
+import { useTerrainHeight } from "../terrain";
 
 /** 交战特效：扩散冲击环 + 渐隐光柱，持续 8 个"日" */
 function ClashFlash({ clash, color }: { clash: ClashEvent; color: string }) {
@@ -12,6 +12,7 @@ function ClashFlash({ clash, color }: { clash: ClashEvent; color: string }) {
   const beam = useRef<THREE.Mesh>(null!);
   const ringMat = useRef<THREE.MeshBasicMaterial>(null!);
   const beamMat = useRef<THREE.MeshBasicMaterial>(null!);
+  const height = useTerrainHeight();
 
   useFrame(() => {
     const { time } = usePlayback.getState();
@@ -25,7 +26,7 @@ function ClashFlash({ clash, color }: { clash: ClashEvent; color: string }) {
     beamMat.current.opacity = (1 - p) * 0.4;
   });
 
-  const y = terrainHeight(clash.x, clash.z);
+  const y = height(clash.x, clash.z);
 
   return (
     <group ref={group} position={[clash.x, y, clash.z]} visible={false}>

@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { useFrame, useThree } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 import type { BattleScript } from "../types";
-import { usePlayback } from "../store";
+import { usePlayback } from "../playback";
 
 /**
  * 双模式相机：

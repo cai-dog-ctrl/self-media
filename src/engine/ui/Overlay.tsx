@@ -1,5 +1,6 @@
-import type { BattleScript } from "../types";
-import { usePlayback } from "../store";
+import type { BattleScript } from "../../engine/types";
+import { usePlayback } from "../../engine/playback";
+import { navigate } from "../../router";
 
 const SPEEDS = [0.5, 1, 2, 4];
 
@@ -20,6 +21,9 @@ export default function Overlay({ script }: { script: BattleScript }) {
   return (
     <>
       <header className="top-bar">
+        <button className="btn back-btn" onClick={() => navigate("/")}>
+          ‹ 战役列表
+        </button>
         <h1>{script.name}</h1>
         <div className="subtitle">{script.era} · 历史战役 3D 沙盘</div>
         <div className="disclaimer">示意地形与布势，非精确史实地理复原</div>
@@ -32,10 +36,12 @@ export default function Overlay({ script }: { script: BattleScript }) {
             {f.name}
           </div>
         ))}
-        <div className="item">
-          <span className="dot" style={{ background: "#9a927f" }} />
-          石长城（示意）
-        </div>
+        {script.landmarks.map((l) => (
+          <div className="item" key={l.id}>
+            <span className="dot" style={{ background: l.color }} />
+            {l.label}
+          </div>
+        ))}
       </aside>
 
       <div className="console">
