@@ -43,7 +43,7 @@ export const usePlayback = create<PlaybackState>((set, get) => ({
     set({ time: Math.max(0, Math.min(get().duration, t)), narrationHold: false }),
   advance: (dt) => {
     const { time, speed, duration, pace } = get();
-    const next = time + dt * speed * pace;
+    const next = Math.max(0, time + dt * speed * pace);
     if (next >= duration) {
       set({ time: duration, playing: false, narrationHold: false });
     } else {

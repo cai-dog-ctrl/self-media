@@ -222,31 +222,61 @@ body,
 .unit-marker {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   pointer-events: auto;
   cursor: pointer;
   user-select: none;
-}
-
-.unit-marker.selected .unit-pin {
-  box-shadow:
-    0 0 0 3px rgba(201, 165, 92, 0.9),
-    0 1px 4px rgba(0, 0, 0, 0.7);
 }
 
 .unit-marker.selected .unit-tag {
   text-decoration: underline;
 }
 
-.unit-pin {
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  border: 2px solid #fff;
-  box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.55),
-    0 1px 4px rgba(0, 0, 0, 0.7);
+.unit-marker.selected .unit-arrow path,
+.unit-marker.selected .unit-post rect {
+  stroke: #ffd76a;
+  stroke-width: 2.6;
+}
+
+/* 朝向容器：每帧按「行军方位 − 地图朝向」旋转，标签保持水平 */
+.unit-arrow-wrap {
+  display: inline-flex;
+  width: 20px;
+  height: 20px;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
+  transition: transform 0.25s linear;
+  will-change: transform;
+}
+
+.unit-arrow,
+.unit-post {
+  width: 100%;
+  height: 100%;
+  display: block;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.65));
+}
+
+/* 机动中的部队：箭头呼吸脉冲，牵引视线 */
+.unit-arrow {
+  animation: unitPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes unitPulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.22);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .unit-arrow {
+    animation: none;
+  }
 }
 
 .unit-tag {
@@ -447,6 +477,51 @@ body,
   display: flex;
   gap: 4px;
   flex-wrap: wrap;
+}
+
+/* ---------- 语音设置 ---------- */
+.voice-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.voice-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: #b7a98a;
+}
+
+.voice-row.disabled {
+  color: #55504a;
+  cursor: not-allowed;
+}
+
+.voice-select {
+  background: rgba(201, 165, 92, 0.1);
+  border: 1px solid rgba(201, 165, 92, 0.45);
+  border-radius: 6px;
+  color: #e8dcc0;
+  font-size: 11px;
+  padding: 4px 6px;
+  outline: none;
+}
+
+.voice-select option {
+  background: #14181f;
+}
+
+.voice-preview {
+  align-self: flex-start;
+}
+
+.voice-hint {
+  font-size: 10px;
+  color: #6f6a5c;
+  line-height: 1.6;
 }
 
 .weather-tint {
@@ -678,6 +753,189 @@ body,
 
 .map-bottombar .speed-group {
   margin-left: 0;
+}
+
+.time-slider {
+  flex: 1;
+  min-width: 90px;
+  accent-color: #c9a55c;
+  cursor: pointer;
+}
+
+/* ---------- 移动端抽屉切换按钮（桌面端隐藏） ---------- */
+.panel-toggle {
+  display: none;
+}
+
+/* ---------- 响应式：≤920px 时 HUD 面板转为抽屉 ---------- */
+@media (max-width: 920px) {
+  .panel-toggle {
+    display: block;
+    position: absolute;
+    top: 48px;
+    z-index: 55;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.45);
+  }
+
+  .pt-left {
+    left: 10px;
+  }
+
+  .pt-right {
+    right: 10px;
+  }
+
+  .map-topbar {
+    height: 40px;
+    padding: 0 10px;
+  }
+
+  .tb-title {
+    font-size: 13px;
+    letter-spacing: 1px;
+  }
+
+  .tb-era,
+  .tb-phase {
+    display: none;
+  }
+
+  .tb-left,
+  .tb-right {
+    gap: 8px;
+  }
+
+  .tb-clock {
+    font-size: 12px;
+  }
+
+  .tb-day {
+    font-size: 11px;
+  }
+
+  .map-panel {
+    top: 86px;
+    bottom: 78px;
+    width: min(300px, 80vw);
+    transition: transform 0.25s ease;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+  }
+
+  .map-left {
+    left: 0;
+    transform: translateX(-105%);
+    border-radius: 0 10px 10px 0;
+  }
+
+  .map-right {
+    right: 0;
+    transform: translateX(105%);
+    border-radius: 10px 0 0 10px;
+  }
+
+  .map-left.open,
+  .map-right.open {
+    transform: none;
+  }
+
+  .map-bottombar {
+    left: 8px;
+    right: 8px;
+    bottom: 10px;
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    gap: 4px;
+    padding: 6px 8px;
+    scrollbar-width: none;
+  }
+
+  .map-bottombar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .map-bottombar .btn {
+    padding: 4px 10px;
+    font-size: 11px;
+    flex-shrink: 0;
+  }
+
+  .map-bottombar .speed-group {
+    flex-shrink: 0;
+  }
+
+  .map-container .maplibregl-ctrl-bottom-right {
+    bottom: 52px;
+  }
+}
+
+/* ---------- 响应式：≤700px 时 3D 沙盘与列表页紧凑化 ---------- */
+@media (max-width: 700px) {
+  .top-bar {
+    top: 10px;
+    left: 12px;
+    max-width: calc(100% - 140px);
+  }
+
+  .top-bar h1 {
+    font-size: 17px;
+    letter-spacing: 2px;
+  }
+
+  .top-bar .subtitle {
+    font-size: 11px;
+    letter-spacing: 1px;
+  }
+
+  .legend {
+    top: 10px;
+    right: 10px;
+    padding: 7px 9px;
+    font-size: 11px;
+    max-width: 120px;
+  }
+
+  .console {
+    width: calc(100% - 16px);
+    padding: 8px 10px 6px;
+    bottom: 12px;
+  }
+
+  .phase-caption {
+    flex-wrap: wrap;
+    font-size: 12px;
+    gap: 6px;
+  }
+
+  .btn {
+    padding: 4px 10px;
+    font-size: 11px;
+  }
+
+  .speed-group .btn {
+    padding: 4px 8px;
+  }
+
+  .center-msg {
+    padding: 0 20px;
+    text-align: center;
+  }
+
+  .list-page {
+    padding: 36px 16px;
+  }
+
+  .list-header h1 {
+    font-size: 24px;
+    letter-spacing: 8px;
+  }
+
+  .battle-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .back-btn {
+    margin-bottom: 6px;
+  }
 }
 
 /* ---------- 返回按钮 ---------- */

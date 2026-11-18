@@ -1,10 +1,14 @@
 import { useEffect, useRef, useState } from "react";
-import { Map as MlMap, Marker as MlMarker } from "maplibre-gl";
+import { Map as MlMap, Marker as MlMarker, setWorkerUrl } from "maplibre-gl";
 import type { GeoJSONSource, Marker } from "maplibre-gl";
+// 以资产形式引入 worker，经 setWorkerUrl 显式指定：
+// 生产构建下 Rollup 会将其正确产出为 hash 资产文件，避免运行时 URL 落空
+import maplibreWorkerUrl from "maplibre-gl/dist/maplibre-gl-worker.mjs?url";
 import "maplibre-gl/dist/maplibre-gl.css";
-import type { GeoBattleScript, PhaseEvent } from "../engine/types";
+import type { GeoBattleScript, GeoUnit, PhaseEvent } from "../engine/types";
 import { geoUnitPositionAt, traveledPath } from "../engine/geo";
 import { usePlayback } from "../engine/playback";
+import { loadTtsSettings, saveTtsSettings, speakWithCloud, type TtsSettings } from "../engine/voice";
 import MapHud from "./MapHud";
 
 /**
@@ -41,6 +45,9 @@ const BASEMAPS = {
 
 const BASEMAP = BASEMAPS.amap;
 
+// 必须在任何 Map 实例创建之前调用
+setWorkerUrl(maplibreWorkerUrl);
+
 const countEventsLE = (events: PhaseEvent[], time: number): number => {
   let n = 0;
   while (n < events.length && events[n].t <= time) n++;
@@ -71,70 +78,258 @@ function cameraAt(script: GeoBattleScript, time: number) {
   };
 }
 
-/** 语音播报一条战况（Web Speech API，优先中文语音；无语音环境时按字数估算兜底恢复） */
-function speakEvent(ev: PhaseEvent, onEnd: () => void): void {
+/* ---------- 全局声音互斥：同一时刻只允许一个声音在播 ---------- */
+
+let currentAudio: HTMLAudioElement | null = null;
+
+/** 停掉当前正在播放的云端音频与系统语音 */
+function stopCurrentAudio(): void {
+  if (currentAudio) {
+    try {
+      currentAudio.pause();
+      currentAudio.currentTime = 0;
+    } catch {
+      // 忽略已失效的音频元素
+    }
+    currentAudio = null;
+  }
+  window.speechSynthesis?.cancel();
+}
+
+/**
+ * 语音播报一条战况。
+ * 优先云端神经语音（经 dev 代理）；未配置/失败时回退系统语音。
+ * 超时兜底采用「心跳续期」：音频/朗读只要还在推进就不断续期看门狗，
+ * 只有真正卡死（长时间无进展）才恢复推演——保证每条内容读完整才进行下一步。
+ * 开始前会先停掉上一个声音，保证任意时刻只有一个声音在播。
+ */
+function speakEvent(ev: PhaseEvent, settings: TtsSettings, onEnd: () => void): void {
   let done = false;
+  let usedSystem = false;
   let timer = 0;
+  let ownAudio: HTMLAudioElement | null = null;
+  const text = `${ev.title}。${ev.detail}`;
+
+  /** 音频活跃心跳窗口：播放中事件频繁触发，超过该时长无动静视为卡死 */
+  const ALIVE_WINDOW = 6000;
+
+  const stopOwn = (): void => {
+    if (ownAudio) {
+      try {
+        ownAudio.pause();
+      } catch {
+        // 忽略
+      }
+      ownAudio = null;
+    }
+  };
+
   const finish = (): void => {
     if (done) return;
     done = true;
     window.clearTimeout(timer);
+    stopOwn();
+    window.speechSynthesis?.cancel();
     onEnd();
   };
-  const synth = window.speechSynthesis;
-  if (!synth) {
-    finish();
-    return;
-  }
-  synth.cancel();
-  const utter = new SpeechSynthesisUtterance(`${ev.title}。${ev.detail}`);
-  utter.lang = "zh-CN";
-  utter.rate = 1;
-  const zh = synth.getVoices().find((v) => v.lang.toLowerCase().startsWith("zh"));
-  if (zh) utter.voice = zh;
-  utter.onend = finish;
-  utter.onerror = finish;
-  // 兜底：无音频后端/语音加载失败时，超时自动恢复推演
-  timer = window.setTimeout(finish, 2500 + (ev.title.length + ev.detail.length) * 260);
-  synth.speak(utter);
+  const armWatchdog = (ms: number): void => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(finish, ms);
+  };
+
+  const fallbackSystem = (): void => {
+    if (done) return;
+    usedSystem = true;
+    stopOwn();
+    const synth = window.speechSynthesis;
+    if (!synth) {
+      finish();
+      return;
+    }
+    synth.cancel();
+    const utter = new SpeechSynthesisUtterance(text);
+    utter.lang = "zh-CN";
+    utter.rate = 1;
+    const zh = synth.getVoices().find((v) => v.lang.toLowerCase().startsWith("zh"));
+    if (zh) utter.voice = zh;
+    utter.onend = finish;
+    utter.onerror = finish;
+    // 朗读过程中按字界心跳续期，慢语速不会被截断
+    utter.onboundary = () => armWatchdog(ALIVE_WINDOW * 2);
+    synth.speak(utter);
+    // 完全无事件的环境（如无语音后端）按宽裕估算兜底恢复
+    armWatchdog(10000 + text.length * 400);
+  };
+
+  // 新声音开始前，先停掉可能还在播的旧声音（叠音的根源）
+  stopCurrentAudio();
+
+  // 合成请求兜底：15 秒还没拿到音频就改用系统语音
+  armWatchdog(15000);
+  speakWithCloud(text, settings)
+    .then((audio) => {
+      if (done || usedSystem) return;
+      ownAudio = audio;
+      currentAudio = audio;
+      audio.onended = finish;
+      audio.onerror = fallbackSystem;
+      // 播放中有进展就持续续期：语音再慢也不会被掐断
+      audio.ontimeupdate = () => armWatchdog(ALIVE_WINDOW);
+      audio.play().catch(fallbackSystem);
+      armWatchdog(ALIVE_WINDOW);
+    })
+    .catch(fallbackSystem);
 }
 
 const EMPTY_FC = { type: "FeatureCollection" as const, features: [] };
 
+interface UnitMarkerHandle {
+  marker: Marker;
+  wrap: HTMLElement;
+  arrow: SVGElement;
+  post: SVGElement;
+}
+
+/** 单位在时刻 t 所在行军段的朝向与机动状态（段内恒定，暂停时也保持箭头） */
+function unitMotionAt(u: GeoUnit, time: number): { moving: boolean; bearing: number } {
+  const wps = u.waypoints;
+  if (wps.length < 2) return { moving: false, bearing: 0 };
+  const lastT = wps[wps.length - 1].t;
+  if (time >= lastT) return { moving: false, bearing: 0 };
+  let i = 0;
+  while (i < wps.length - 1 && wps[i + 1].t <= time) i++;
+  const a = wps[i];
+  const b = wps[i + 1] ?? wps[i];
+  const dLon = b.lon - a.lon;
+  const dLat = b.lat - a.lat;
+  if (Math.abs(dLon) < 1e-6 && Math.abs(dLat) < 1e-6) return { moving: false, bearing: 0 };
+  return { moving: true, bearing: (Math.atan2(dLon, dLat) * 180) / Math.PI };
+}
+
+/**
+ * 单位 DOM 标记：机动时显示朝向箭头（脉冲呼吸），驻守/被歼显示菱形据点；
+ * 大小按兵力规模缩放。返回各部件引用供每帧更新朝向与状态。
+ */
 function makeUnitElement(
   color: string,
   label: string,
+  scale: number,
   onClick: () => void
-): HTMLElement {
+): { el: HTMLElement; wrap: HTMLElement; arrow: SVGElement; post: SVGElement } {
   const el = document.createElement("div");
   el.className = "unit-marker";
-  const pin = document.createElement("span");
-  pin.className = "unit-pin";
-  pin.style.background = color;
-  pin.style.borderColor = color;
+  el.style.scale = String(scale);
+
+  const wrap = document.createElement("span");
+  wrap.className = "unit-arrow-wrap";
+
+  const arrow = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  arrow.setAttribute("class", "unit-arrow");
+  arrow.setAttribute("viewBox", "0 0 22 22");
+  arrow.innerHTML =
+    `<path d="M11 1.5 L19.5 20 L11 15.5 L2.5 20 Z" fill="${color}" ` +
+    `stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/>`;
+
+  const post = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  post.setAttribute("class", "unit-post");
+  post.setAttribute("viewBox", "0 0 22 22");
+  post.innerHTML =
+    `<rect x="5.5" y="5.5" width="11" height="11" rx="1.5" transform="rotate(45 11 11)" ` +
+    `fill="${color}" stroke="#fff" stroke-width="1.6"/>`;
+
+  wrap.appendChild(arrow);
+  wrap.appendChild(post);
+
   const tag = document.createElement("span");
   tag.className = "unit-tag";
   tag.style.color = color;
   tag.textContent = label;
-  el.appendChild(pin);
+
+  el.appendChild(wrap);
   el.appendChild(tag);
   el.addEventListener("click", (e) => {
     e.stopPropagation();
     onClick();
   });
-  return el;
+  return { el, wrap, arrow, post };
+}
+
+/** 流动虚线的相位序列（蚂蚁线），按此循环产生「向前行进」的动画 */
+const DASH_SEQUENCE: Array<Array<number>> = [
+  [0, 4, 1],
+  [0.25, 4, 0.75],
+  [0.5, 4, 0.5],
+  [0.75, 4, 0.25],
+  [1, 4, 0],
+  [0, 0.25, 4, 0.75],
+  [0, 0.5, 4, 0.5],
+  [0, 0.75, 4, 0.25],
+];
+
+/** 沿线方向箭头图标（白色描边 + 势力色，指向行进方向） */
+function makeChevronIcon(color: string): ImageData {
+  const c = document.createElement("canvas");
+  c.width = 24;
+  c.height = 24;
+  const ctx = c.getContext("2d")!;
+  ctx.beginPath();
+  ctx.moveTo(4, 6);
+  ctx.lineTo(12, 18);
+  ctx.lineTo(20, 6);
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.lineWidth = 6;
+  ctx.strokeStyle = "rgba(255, 255, 255, 0.95)";
+  ctx.stroke();
+  ctx.lineWidth = 3.4;
+  ctx.strokeStyle = color;
+  ctx.stroke();
+  return ctx.getImageData(0, 0, 24, 24);
 }
 
 export default function MapBattleView({ script }: { script: GeoBattleScript }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MlMap | null>(null);
-  const markersRef = useRef<Map<string, Marker>>(new Map());
+  const markersRef = useRef<Map<string, UnitMarkerHandle>>(new Map());
   const [ready, setReady] = useState(false);
   const [voiceOn, setVoiceOn] = useState(true);
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
+  const [tts, setTts] = useState<TtsSettings>(() => loadTtsSettings());
   const freeCamera = usePlayback((s) => s.freeCamera);
   const voiceOnRef = useRef(voiceOn);
   voiceOnRef.current = voiceOn;
+  const ttsRef = useRef(tts);
+  ttsRef.current = tts;
+
+  const handleTtsChange = (next: TtsSettings): void => {
+    setTts(next);
+    saveTtsSettings(next);
+  };
+
+  /** 试听当前语音配置（先停掉正在播的解说，避免叠音） */
+  const previewVoice = (): void => {
+    const text = "淮海战役，作战态势推演。语音解说就绪。";
+    // 若解说进行中：切断当前解说并恢复推演，试听成为唯一声音
+    if (usePlayback.getState().narrationHold) {
+      usePlayback.setState({ narrationHold: false, playing: true });
+    }
+    stopCurrentAudio();
+    speakWithCloud(text, ttsRef.current)
+      .then((audio) => {
+        // fetch 期间可能又有新的试听/解说开始，播放前再次互斥
+        stopCurrentAudio();
+        currentAudio = audio;
+        audio.play().catch(() => undefined);
+      })
+      .catch(() => {
+        const synth = window.speechSynthesis;
+        if (synth) {
+          const utter = new SpeechSynthesisUtterance(text);
+          utter.lang = "zh-CN";
+          synth.speak(utter);
+        }
+      });
+  };
 
   // 初始化地图与图层
   useEffect(() => {
@@ -163,10 +358,27 @@ export default function MapBattleView({ script }: { script: GeoBattleScript }) {
       maxZoom: 13,
     });
     mapRef.current = map;
+    // 调试句柄：控制台可直接访问地图实例（window.__warMap）
+    (window as unknown as Record<string, unknown>).__warMap = map;
 
     map.on("load", () => {
+      // 计划路线：当前位置之后的剩余路径（淡虚线，预示调动方向）
+      map.addSource("plans", { type: "geojson", data: EMPTY_FC });
+      map.addLayer({
+        id: "plan-line",
+        type: "line",
+        source: "plans",
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": ["get", "color"],
+          "line-width": 1.6,
+          "line-opacity": 0.32,
+          "line-dasharray": [0.5, 2.2],
+        },
+      });
       // 行军线：已走过的路径
       map.addSource("marches", { type: "geojson", data: EMPTY_FC });
+      // 底线（弱化）
       map.addLayer({
         id: "march-line",
         type: "line",
@@ -175,7 +387,37 @@ export default function MapBattleView({ script }: { script: GeoBattleScript }) {
         paint: {
           "line-color": ["get", "color"],
           "line-width": 3,
-          "line-opacity": 0.75,
+          "line-opacity": 0.4,
+        },
+      });
+      // 流动虚线（蚂蚁线动画，方向即行进方向）
+      map.addLayer({
+        id: "march-flow",
+        type: "line",
+        source: "marches",
+        paint: {
+          "line-color": ["get", "color"],
+          "line-width": 2.4,
+          "line-opacity": 0.95,
+          "line-dasharray": DASH_SEQUENCE[0],
+        },
+      });
+      // 沿途方向箭头
+      for (const [key, f] of Object.entries(script.factions)) {
+        map.addImage(`chev-${key}`, makeChevronIcon(f.color));
+      }
+      map.addLayer({
+        id: "march-arrow",
+        type: "symbol",
+        source: "marches",
+        layout: {
+          "symbol-placement": "line",
+          "symbol-spacing": 42,
+          "icon-image": ["concat", "chev-", ["get", "faction"]],
+          "icon-rotation-alignment": "map",
+          "icon-allow-overlap": true,
+          "icon-ignore-placement": true,
+          "icon-size": 0.7,
         },
       });
       // 交战特效：扩散环
@@ -203,35 +445,44 @@ export default function MapBattleView({ script }: { script: GeoBattleScript }) {
       });
 
       // 单位 DOM 标记（中文标签无需 glyph 服务），可点击查看详情
-      markersRef.current.forEach((m) => m.remove());
+      markersRef.current.forEach((h) => h.marker.remove());
       markersRef.current.clear();
       for (const u of script.units) {
         const color = script.factions[u.faction].color;
-        const marker = new MlMarker({
-          element: makeUnitElement(color, u.label, () => setSelectedUnitId(u.id)),
-        });
+        const parts = makeUnitElement(
+          color,
+          u.label,
+          0.75 + u.size * 0.55,
+          () => setSelectedUnitId(u.id)
+        );
+        const marker = new MlMarker({ element: parts.el });
         marker.setLngLat(geoUnitPositionAt(u, 0));
         marker.addTo(map);
-        markersRef.current.set(u.id, marker);
+        markersRef.current.set(u.id, {
+          marker,
+          wrap: parts.wrap,
+          arrow: parts.arrow,
+          post: parts.post,
+        });
       }
       setReady(true);
     });
 
     return () => {
-      markersRef.current.forEach((m) => m.remove());
+      markersRef.current.forEach((h) => h.marker.remove());
       markersRef.current.clear();
       map.remove();
       mapRef.current = null;
       setReady(false);
-      window.speechSynthesis?.cancel();
+      stopCurrentAudio();
     };
   }, [script]);
 
   // 选中高亮
   useEffect(() => {
     if (!ready) return;
-    markersRef.current.forEach((m, id) => {
-      m.getElement().classList.toggle("selected", id === selectedUnitId);
+    markersRef.current.forEach((h, id) => {
+      h.marker.getElement().classList.toggle("selected", id === selectedUnitId);
     });
   }, [selectedUnitId, ready]);
 
@@ -266,19 +517,32 @@ export default function MapBattleView({ script }: { script: GeoBattleScript }) {
     restart();
     setDuration(script.duration);
     const spoken = { index: -1 };
+    let flowAcc = 0;
+    let flowStep = 0;
 
     let raf = 0;
     let last = performance.now();
     const tick = (now: number) => {
-      const dt = Math.min(0.1, (now - last) / 1000);
+      // rAF 时间戳偶尔早于上一帧记录，钳到非负，避免时间倒退
+      const dt = Math.max(0, Math.min(0.1, (now - last) / 1000));
       last = now;
       const s = usePlayback.getState();
       if (s.playing) s.advance(dt);
 
+      // 流动虚线相位推进（暂停时冻结）
+      if (s.playing) {
+        flowAcc += dt;
+        if (flowAcc >= 0.1) {
+          flowAcc = 0;
+          flowStep = (flowStep + 1) % DASH_SEQUENCE.length;
+          map.setPaintProperty("march-flow", "line-dasharray", DASH_SEQUENCE[flowStep]);
+        }
+      }
+
       // 事件语音播报：前进越过新事件时播报并自动暂停推演；回拖时静默重置
       const idx = countEventsLE(script.events, s.time);
       if (idx < spoken.index) {
-        window.speechSynthesis?.cancel();
+        stopCurrentAudio();
         setNarrationHold(false);
       } else if (
         idx > spoken.index &&
@@ -288,7 +552,7 @@ export default function MapBattleView({ script }: { script: GeoBattleScript }) {
       ) {
         const ev = script.events[Math.max(0, idx - 1)];
         usePlayback.setState({ playing: false, narrationHold: true });
-        speakEvent(ev, () => {
+        speakEvent(ev, ttsRef.current, () => {
           if (usePlayback.getState().narrationHold) {
             usePlayback.setState({ narrationHold: false, playing: true });
           }
@@ -296,14 +560,49 @@ export default function MapBattleView({ script }: { script: GeoBattleScript }) {
       }
       spoken.index = idx;
 
-      // 单位位置与可见性
+      // 单位位置、可见性、朝向与机动状态
       for (const u of script.units) {
-        const marker = markersRef.current.get(u.id);
-        if (!marker) continue;
+        const h = markersRef.current.get(u.id);
+        if (!h) continue;
         const visible = u.appearAfter === undefined || s.time >= u.appearAfter;
-        const el = marker.getElement();
+        const el = h.marker.getElement();
         el.style.display = visible ? "" : "none";
-        if (visible) marker.setLngLat(geoUnitPositionAt(u, s.time));
+        if (!visible) continue;
+        h.marker.setLngLat(geoUnitPositionAt(u, s.time));
+        const { moving, bearing } = unitMotionAt(u, s.time);
+        if (moving) {
+          // 箭头随地图朝向补偿，标签始终保持水平
+          const eff = bearing - map.getBearing();
+          h.wrap.style.transform = `rotate(${eff}deg)`;
+        }
+        h.arrow.style.display = moving ? "" : "none";
+        h.post.style.display = moving ? "none" : "";
+      }
+
+      // 计划路线（当前位置 → 剩余路径点）
+      const plans = map.getSource("plans") as GeoJSONSource | undefined;
+      if (plans) {
+        plans.setData({
+          type: "FeatureCollection",
+          features: script.units
+            .filter((u) => u.appearAfter === undefined || s.time >= u.appearAfter)
+            .map((u) => {
+              const cur = geoUnitPositionAt(u, s.time);
+              const pts: Array<[number, number]> = [
+                [cur[0], cur[1]],
+                ...u.waypoints
+                  .filter((w) => w.t > s.time)
+                  .map((w) => [w.lon, w.lat] as [number, number]),
+              ];
+              if (pts.length < 2) return null;
+              return {
+                type: "Feature" as const,
+                geometry: { type: "LineString" as const, coordinates: pts },
+                properties: { id: u.id, color: script.factions[u.faction].color },
+              };
+            })
+            .filter((f): f is NonNullable<typeof f> => f !== null),
+        });
       }
 
       // 已走过的行军线
@@ -317,7 +616,11 @@ export default function MapBattleView({ script }: { script: GeoBattleScript }) {
             .map((u) => ({
               type: "Feature" as const,
               geometry: { type: "LineString" as const, coordinates: traveledPath(u, s.time) },
-              properties: { id: u.id, color: script.factions[u.faction].color },
+              properties: {
+                id: u.id,
+                color: script.factions[u.faction].color,
+                faction: u.faction,
+              },
             })),
         });
       }
@@ -353,7 +656,7 @@ export default function MapBattleView({ script }: { script: GeoBattleScript }) {
     setVoiceOn((v) => {
       const next = !v;
       if (!next) {
-        window.speechSynthesis?.cancel();
+        stopCurrentAudio();
         if (usePlayback.getState().narrationHold) {
           usePlayback.setState({ narrationHold: false, playing: true });
         }
@@ -371,6 +674,9 @@ export default function MapBattleView({ script }: { script: GeoBattleScript }) {
         onToggleVoice={toggleVoice}
         selectedUnitId={selectedUnitId}
         onSelectUnit={setSelectedUnitId}
+        tts={tts}
+        onTtsChange={handleTtsChange}
+        onPreviewVoice={previewVoice}
       />
     </div>
   );

@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { GeoBattleScript, GeoUnit, PhaseEvent } from "../engine/types";
 import { geoUnitPositionAt, unitMovementStatus } from "../engine/geo";
 import { usePlayback } from "../engine/playback";
+import { EDGE_VOICES, TENCENT_VOICES, type TtsSettings } from "../engine/voice";
 
 const MAP_SPEEDS = [0.25, 0.5, 1, 2, 4];
 
@@ -49,6 +50,9 @@ export interface MapHudProps {
   onToggleVoice: () => void;
   selectedUnitId: string | null;
   onSelectUnit: (id: string | null) => void;
+  tts: TtsSettings;
+  onTtsChange: (s: TtsSettings) => void;
+  onPreviewVoice: () => void;
 }
 
 export default function MapHud({
@@ -57,6 +61,9 @@ export default function MapHud({
   onToggleVoice,
   selectedUnitId,
   onSelectUnit,
+  tts,
+  onTtsChange,
+  onPreviewVoice,
 }: MapHudProps) {
   const time = usePlayback((s) => s.time);
   const playing = usePlayback((s) => s.playing);
@@ -66,8 +73,15 @@ export default function MapHud({
   const setSpeed = usePlayback((s) => s.setSpeed);
   const setTime = usePlayback((s) => s.setTime);
   const toggleCamera = usePlayback((s) => s.toggleCamera);
-  const restart = usePlayback((s) => s.restart);
   const [weather, setWeather] = useState<Weather>("clear");
+  // 移动端抽屉开关（桌面端面板常驻，不生效）
+  const [leftOpen, setLeftOpen] = useState(false);
+  const [rightOpen, setRightOpen] = useState(false);
+
+  // 选中单位时自动展开右侧详情（移动端）
+  useEffect(() => {
+    if (selectedUnitId) setRightOpen(true);
+  }, [selectedUnitId]);
 
   const eventIndex = countEventsLE(script.events, time);
   const currentEvent = script.events[Math.max(0, eventIndex - 1)];
@@ -100,8 +114,28 @@ export default function MapHud({
         </div>
       </div>
 
+      {/* 移动端抽屉切换按钮（桌面端隐藏） */}
+      <button
+        className="btn panel-toggle pt-left"
+        onClick={() => {
+          setLeftOpen((v) => !v);
+          setRightOpen(false);
+        }}
+      >
+        ≡ 简报
+      </button>
+      <button
+        className="btn panel-toggle pt-right"
+        onClick={() => {
+          setRightOpen((v) => !v);
+          setLeftOpen(false);
+        }}
+      >
+        日志 ≡
+      </button>
+
       {/* 左侧面板：阶段简报 / 军队进出 / 战场气象 */}
-      <aside className="map-panel map-left">
+      <aside className={"map-panel map-left" + (leftOpen ? " open" : "")}>
         <section className="hud-section">
           <h3>◆ 当前阶段简报</h3>
           {currentEvent && (
@@ -150,10 +184,82 @@ export default function MapHud({
             ))}
           </div>
         </section>
+
+        <section className="hud-section">
+          <h3>◆ 语音解说</h3>
+          <div className="voice-settings">
+            <label className="voice-row">
+              <input
+                type="radio"
+                name="tts-engine"
+                checked={tts.engine === "system"}
+                onChange={() => onTtsChange({ ...tts, engine: "system" })}
+              />
+              系统语音
+            </label>
+            <label className={"voice-row" + (__TTS_EDGE__ ? "" : " disabled")}>
+              <input
+                type="radio"
+                name="tts-engine"
+                disabled={!__TTS_EDGE__}
+                checked={tts.engine === "edge"}
+                onChange={() => onTtsChange({ ...tts, engine: "edge" })}
+              />
+              Edge 神经语音（免费）
+            </label>
+            <label className={"voice-row" + (__TTS_TENCENT__ ? "" : " disabled")}>
+              <input
+                type="radio"
+                name="tts-engine"
+                disabled={!__TTS_TENCENT__}
+                checked={tts.engine === "tencent"}
+                onChange={() => onTtsChange({ ...tts, engine: "tencent" })}
+              />
+              腾讯云语音合成
+            </label>
+            {tts.engine !== "system" && (
+              <>
+                <select
+                  className="voice-select"
+                  value={tts.engine === "edge" ? tts.edgeVoice : String(tts.tencentVoice)}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    onTtsChange(
+                      tts.engine === "edge"
+                        ? { ...tts, edgeVoice: v }
+                        : { ...tts, tencentVoice: Number(v) }
+                    );
+                  }}
+                >
+                  {(tts.engine === "edge" ? EDGE_VOICES : TENCENT_VOICES).map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.label}
+                    </option>
+                  ))}
+                </select>
+                <button className="btn voice-preview" onClick={onPreviewVoice}>
+                  试听
+                </button>
+              </>
+            )}
+            {!__TTS_EDGE__ && (
+              <div className="voice-hint">
+                云端语音需在本地 npm run dev 下使用
+                <br />
+                （线上部署自动回退系统语音）
+              </div>
+            )}
+            {!__TTS_TENCENT__ && __TTS_EDGE__ && (
+              <div className="voice-hint">
+                腾讯云引擎未配置密钥（见 .env.example）
+              </div>
+            )}
+          </div>
+        </section>
       </aside>
 
       {/* 右侧面板：单位详情 / 作战日志 */}
-      <aside className="map-panel map-right">
+      <aside className={"map-panel map-right" + (rightOpen ? " open" : "")}>
         <section className="hud-section">
           <h3>◆ 单位详情</h3>
           {selected ? (
@@ -224,14 +330,21 @@ export default function MapHud({
         </section>
       </aside>
 
-      {/* 底栏：自动推演 / 阶段 / 倍速 / 语音 / 视角 */}
+      {/* 底栏：自动推演 / 时间轴 / 阶段 / 倍速 / 语音 / 视角 */}
       <div className="map-bottombar">
         <button className="btn primary" onClick={togglePlay}>
           {playing ? "暂停推演" : "自动推演"}
         </button>
-        <button className="btn" onClick={restart}>
-          重播
-        </button>
+        <input
+          type="range"
+          className="time-slider"
+          min={0}
+          max={script.duration}
+          step={0.1}
+          value={time}
+          onChange={(e) => setTime(parseFloat(e.target.value))}
+          aria-label="时间轴"
+        />
         <div className="phase-tabs">
           {script.phases?.map((p, i) => {
             const active =
