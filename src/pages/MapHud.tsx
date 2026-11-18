@@ -3,6 +3,7 @@ import type { GeoBattleScript, GeoUnit, PhaseEvent } from "../engine/types";
 import { geoUnitPositionAt, unitMovementStatus } from "../engine/geo";
 import { usePlayback } from "../engine/playback";
 import { EDGE_VOICES, TENCENT_VOICES, type TtsSettings } from "../engine/voice";
+import { navigate } from "../router";
 
 const MAP_SPEEDS = [0.25, 0.5, 1, 2, 4];
 
@@ -73,15 +74,60 @@ export default function MapHud({
   const setSpeed = usePlayback((s) => s.setSpeed);
   const setTime = usePlayback((s) => s.setTime);
   const toggleCamera = usePlayback((s) => s.toggleCamera);
+  const restart = usePlayback((s) => s.restart);
   const [weather, setWeather] = useState<Weather>("clear");
   // 移动端抽屉开关（桌面端面板常驻，不生效）
   const [leftOpen, setLeftOpen] = useState(false);
   const [rightOpen, setRightOpen] = useState(false);
+  // 录屏模式：隐藏全部面板（H 切换，?clean=1 直接进入）
+  const [hudHidden, setHudHidden] = useState(
+    () => new URLSearchParams(window.location.search).get("clean") === "1"
+  );
+  // 结束控制：循环播放 / 片尾卡
+  const [loop, setLoop] = useState(false);
+  const [endCardDismissed, setEndCardDismissed] = useState(false);
+  const ended = time >= script.duration - 0.001;
+
+  // 循环播放：播完停留 1.2 秒后自动回到开场
+  useEffect(() => {
+    if (!loop || !ended || playing) return;
+    const t = window.setTimeout(() => restart(), 1200);
+    return () => window.clearTimeout(t);
+  }, [loop, ended, playing, restart]);
+
+  // 重播后重置片尾卡
+  useEffect(() => {
+    if (!ended) setEndCardDismissed(false);
+  }, [ended]);
 
   // 选中单位时自动展开右侧详情（移动端）
   useEffect(() => {
     if (selectedUnitId) setRightOpen(true);
   }, [selectedUnitId]);
+
+  // 快捷键：H 隐藏/显示面板，F 全屏（录屏用）
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+      if (e.key === "h" || e.key === "H") {
+        setHudHidden((v) => !v);
+      } else if (e.key === "f" || e.key === "F") {
+        if (document.fullscreenElement) {
+          void document.exitFullscreen();
+        } else {
+          void document.documentElement.requestFullscreen?.();
+        }
+      } else if (e.key === " ") {
+        e.preventDefault();
+        togglePlay();
+      } else if (e.key === "r" || e.key === "R") {
+        restart();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [togglePlay, restart]);
 
   const eventIndex = countEventsLE(script.events, time);
   const currentEvent = script.events[Math.max(0, eventIndex - 1)];
@@ -95,7 +141,10 @@ export default function MapHud({
   );
 
   return (
-    <>
+    <div className={"map-hud" + (hudHidden ? " hud-hidden" : "")}>
+      {/* 快捷键提示（5 秒后自动淡出） */}
+      <div className="hud-hint">H 隐藏面板 · F 全屏 · 适合录屏</div>
+
       {/* 气象视觉层（纯视觉特效） */}
       <div className={`weather-tint weather-${weather}`} />
 
@@ -335,6 +384,9 @@ export default function MapHud({
         <button className="btn primary" onClick={togglePlay}>
           {playing ? "暂停推演" : "自动推演"}
         </button>
+        <button className="btn" onClick={restart} title="回到开场重录">
+          重播
+        </button>
         <input
           type="range"
           className="time-slider"
@@ -384,7 +436,39 @@ export default function MapHud({
         >
           自由视角
         </button>
+        <button
+          className={"btn" + (loop ? " active" : "")}
+          onClick={() => setLoop((v) => !v)}
+          title="播完自动重播（适合录屏/展示）"
+        >
+          循环
+        </button>
+        <button className="btn" onClick={() => setHudHidden(true)} title="隐藏面板（H）">
+          录屏
+        </button>
       </div>
-    </>
+
+      {/* 片尾卡：推演结束，明确提示可停止录制 */}
+      {ended && !endCardDismissed && !loop && (
+        <div className="end-card">
+          <div className="end-kicker">推演完毕</div>
+          <h3 className="end-title">{script.name}</h3>
+          <div className="end-era">{script.era}</div>
+          <p className="end-summary">{script.summary}</p>
+          <div className="end-actions">
+            <button className="btn primary" onClick={restart}>
+              重新推演
+            </button>
+            <button className="btn" onClick={() => navigate("/")}>
+              返回列表
+            </button>
+            <button className="btn" onClick={() => setEndCardDismissed(true)}>
+              留在地图
+            </button>
+          </div>
+          <div className="end-note">可停止录制 · 空格暂停 · R 重播</div>
+        </div>
+      )}
+    </div>
   );
 }

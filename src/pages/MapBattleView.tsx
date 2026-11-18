@@ -544,6 +544,8 @@ export default function MapBattleView({ script }: { script: GeoBattleScript }) {
       if (idx < spoken.index) {
         stopCurrentAudio();
         setNarrationHold(false);
+        // 重播/循环/拖回开场时允许重新播报第一条解说；中途回拖则静默
+        spoken.index = s.time <= 1 ? -1 : idx;
       } else if (
         idx > spoken.index &&
         voiceOnRef.current &&

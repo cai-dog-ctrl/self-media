@@ -767,6 +767,110 @@ body,
   display: none;
 }
 
+/* ---------- 录屏模式：隐藏全部面板 ---------- */
+.hud-hidden .map-topbar,
+.hud-hidden .map-panel,
+.hud-hidden .map-bottombar,
+.hud-hidden .panel-toggle {
+  display: none;
+}
+
+/* ---------- 片尾卡 ---------- */
+.end-card {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 65;
+  width: min(440px, calc(100% - 40px));
+  background: rgba(10, 13, 19, 0.92);
+  border: 1px solid rgba(201, 165, 92, 0.5);
+  border-radius: 14px;
+  padding: 26px 28px 20px;
+  text-align: center;
+  color: #e8dcc0;
+  backdrop-filter: blur(10px);
+  box-shadow: 0 16px 60px rgba(0, 0, 0, 0.6);
+  animation: endCardIn 0.5s ease-out;
+}
+
+@keyframes endCardIn {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -46%);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, -50%);
+  }
+}
+
+.end-kicker {
+  font-size: 11px;
+  letter-spacing: 4px;
+  color: #c9a55c;
+}
+
+.end-title {
+  font-size: 26px;
+  letter-spacing: 6px;
+  margin: 8px 0 6px;
+}
+
+.end-era {
+  font-size: 12px;
+  color: #9c917a;
+}
+
+.end-summary {
+  font-size: 12px;
+  line-height: 1.8;
+  color: #b7a98a;
+  margin: 14px 0 18px;
+  text-align: left;
+}
+
+.end-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.end-note {
+  margin-top: 14px;
+  font-size: 10px;
+  color: #6f6a5c;
+  letter-spacing: 1px;
+}
+
+.hud-hint {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 70;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: rgba(232, 220, 192, 0.8);
+  background: rgba(8, 10, 14, 0.55);
+  border: 1px solid rgba(232, 220, 192, 0.15);
+  border-radius: 8px;
+  padding: 5px 10px;
+  pointer-events: none;
+  animation: hudHintFade 5s forwards;
+}
+
+@keyframes hudHintFade {
+  0%,
+  70% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    visibility: hidden;
+  }
+}
+
 /* ---------- 响应式：≤920px 时 HUD 面板转为抽屉 ---------- */
 @media (max-width: 920px) {
   .panel-toggle {
