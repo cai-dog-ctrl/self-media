@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "pack": "npm run build && cd dist && rm -f ../huaxia-war-cos.zip && zip -qr ../huaxia-war-cos.zip . && echo '打包完成: huaxia-war-cos.zip'"
   },
   "dependencies": {
     "@react-three/drei": "^9.114.3",

@@ -54,6 +54,14 @@ export interface MapHudProps {
   tts: TtsSettings;
   onTtsChange: (s: TtsSettings) => void;
   onPreviewVoice: () => void;
+  /** 拖动/跳转时间轴（会掐断当前解说并静默跳转） */
+  onSeek: (t: number) => void;
+  /** 重播（会先作废正在播的解说） */
+  onRestart: () => void;
+  /** 解说播报中点击暂停：停止解说并保持暂停 */
+  onStopNarration: () => void;
+  /** 声音被浏览器自动播放策略拦截，需用户点击页面解锁 */
+  needsAudioGesture: boolean;
 }
 
 export default function MapHud({
@@ -65,16 +73,19 @@ export default function MapHud({
   tts,
   onTtsChange,
   onPreviewVoice,
+  onSeek,
+  onRestart,
+  onStopNarration,
+  needsAudioGesture,
 }: MapHudProps) {
   const time = usePlayback((s) => s.time);
   const playing = usePlayback((s) => s.playing);
+  const narrationHold = usePlayback((s) => s.narrationHold);
   const speed = usePlayback((s) => s.speed);
   const freeCamera = usePlayback((s) => s.freeCamera);
   const togglePlay = usePlayback((s) => s.togglePlay);
   const setSpeed = usePlayback((s) => s.setSpeed);
-  const setTime = usePlayback((s) => s.setTime);
   const toggleCamera = usePlayback((s) => s.toggleCamera);
-  const restart = usePlayback((s) => s.restart);
   const [weather, setWeather] = useState<Weather>("clear");
   // 移动端抽屉开关（桌面端面板常驻，不生效）
   const [leftOpen, setLeftOpen] = useState(false);
@@ -91,9 +102,9 @@ export default function MapHud({
   // 循环播放：播完停留 1.2 秒后自动回到开场
   useEffect(() => {
     if (!loop || !ended || playing) return;
-    const t = window.setTimeout(() => restart(), 1200);
+    const t = window.setTimeout(() => onRestart(), 1200);
     return () => window.clearTimeout(t);
-  }, [loop, ended, playing, restart]);
+  }, [loop, ended, playing, onRestart]);
 
   // 重播后重置片尾卡
   useEffect(() => {
@@ -120,14 +131,16 @@ export default function MapHud({
         }
       } else if (e.key === " ") {
         e.preventDefault();
-        togglePlay();
+        // 解说中按空格 = 停止解说并保持暂停
+        if (narrationHold) onStopNarration();
+        else togglePlay();
       } else if (e.key === "r" || e.key === "R") {
-        restart();
+        onRestart();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [togglePlay, restart]);
+  }, [togglePlay, onRestart, onStopNarration, narrationHold]);
 
   const eventIndex = countEventsLE(script.events, time);
   const currentEvent = script.events[Math.max(0, eventIndex - 1)];
@@ -144,6 +157,11 @@ export default function MapHud({
     <div className={"map-hud" + (hudHidden ? " hud-hidden" : "")}>
       {/* 快捷键提示（5 秒后自动淡出） */}
       <div className="hud-hint">H 隐藏面板 · F 全屏 · 适合录屏</div>
+
+      {/* 自动播放被拦截时的解锁提示 */}
+      {needsAudioGesture && (
+        <div className="audio-hint">声音被浏览器拦截 · 点击页面任意处开启解说</div>
+      )}
 
       {/* 气象视觉层（纯视觉特效） */}
       <div className={`weather-tint weather-${weather}`} />
@@ -381,10 +399,18 @@ export default function MapHud({
 
       {/* 底栏：自动推演 / 时间轴 / 阶段 / 倍速 / 语音 / 视角 */}
       <div className="map-bottombar">
-        <button className="btn primary" onClick={togglePlay}>
-          {playing ? "暂停推演" : "自动推演"}
+        <button
+          className={"btn primary" + (narrationHold && !playing ? " narrating" : "")}
+          onClick={narrationHold ? onStopNarration : togglePlay}
+          title={
+            narrationHold
+              ? "点击停止解说并保持暂停（否则读完后自动继续）"
+              : undefined
+          }
+        >
+          {playing ? "暂停推演" : narrationHold ? "解说中…" : "自动推演"}
         </button>
-        <button className="btn" onClick={restart} title="回到开场重录">
+        <button className="btn" onClick={onRestart} title="回到开场重录">
           重播
         </button>
         <input
@@ -394,7 +420,7 @@ export default function MapHud({
           max={script.duration}
           step={0.1}
           value={time}
-          onChange={(e) => setTime(parseFloat(e.target.value))}
+          onChange={(e) => onSeek(parseFloat(e.target.value))}
           aria-label="时间轴"
         />
         <div className="phase-tabs">
@@ -406,7 +432,7 @@ export default function MapHud({
               <button
                 key={p.label}
                 className={"phase-tab" + (active ? " active" : "")}
-                onClick={() => setTime(p.t)}
+                onClick={() => onSeek(p.t)}
               >
                 {p.label}
               </button>
@@ -456,7 +482,7 @@ export default function MapHud({
           <div className="end-era">{script.era}</div>
           <p className="end-summary">{script.summary}</p>
           <div className="end-actions">
-            <button className="btn primary" onClick={restart}>
+            <button className="btn primary" onClick={onRestart}>
               重新推演
             </button>
             <button className="btn" onClick={() => navigate("/")}>

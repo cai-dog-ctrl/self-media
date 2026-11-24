@@ -19,6 +19,8 @@ function BattleStage({ script }: { script: BattleScript }) {
     restart();
     setDuration(script.duration);
     setPace(4);
+    // 进入后默认暂停，由用户手动点「播放」开始
+    usePlayback.setState({ playing: false });
   }, [script, restart, setDuration, setPace]);
 
   if (import.meta.env.DEV) {

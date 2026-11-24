@@ -81,9 +81,12 @@ function cameraAt(script: GeoBattleScript, time: number) {
 /* ---------- 全局声音互斥：同一时刻只允许一个声音在播 ---------- */
 
 let currentAudio: HTMLAudioElement | null = null;
+/** 解说会话号：任何停声/重播都会让旧会话的异步回调全部作废 */
+let narrationSession = 0;
 
-/** 停掉当前正在播放的云端音频与系统语音 */
+/** 停掉当前正在播放的云端音频与系统语音，并作废所有在途解说回调 */
 function stopCurrentAudio(): void {
+  narrationSession += 1;
   if (currentAudio) {
     try {
       currentAudio.pause();
@@ -103,12 +106,23 @@ function stopCurrentAudio(): void {
  * 只有真正卡死（长时间无进展）才恢复推演——保证每条内容读完整才进行下一步。
  * 开始前会先停掉上一个声音，保证任意时刻只有一个声音在播。
  */
-function speakEvent(ev: PhaseEvent, settings: TtsSettings, onEnd: () => void): void {
+function speakEvent(
+  ev: PhaseEvent,
+  settings: TtsSettings,
+  onEnd: () => void,
+  onBlocked: () => void
+): void {
+  // 先停掉可能还在播的旧声音（会推进会话号），再接管为新会话
+  stopCurrentAudio();
+
   let done = false;
   let usedSystem = false;
   let timer = 0;
   let ownAudio: HTMLAudioElement | null = null;
   const text = `${ev.title}。${ev.detail}`;
+  /** 本条解说所属会话；会话被更新（停声/重播/跳转）后，本条的残余回调一律作废 */
+  const session = ++narrationSession;
+  const stale = (): boolean => session !== narrationSession;
 
   /** 音频活跃心跳窗口：播放中事件频繁触发，超过该时长无动静视为卡死 */
   const ALIVE_WINDOW = 6000;
@@ -125,7 +139,7 @@ function speakEvent(ev: PhaseEvent, settings: TtsSettings, onEnd: () => void): v
   };
 
   const finish = (): void => {
-    if (done) return;
+    if (done || stale()) return;
     done = true;
     window.clearTimeout(timer);
     stopOwn();
@@ -138,7 +152,7 @@ function speakEvent(ev: PhaseEvent, settings: TtsSettings, onEnd: () => void): v
   };
 
   const fallbackSystem = (): void => {
-    if (done) return;
+    if (done || stale()) return;
     usedSystem = true;
     stopOwn();
     const synth = window.speechSynthesis;
@@ -154,28 +168,35 @@ function speakEvent(ev: PhaseEvent, settings: TtsSettings, onEnd: () => void): v
     if (zh) utter.voice = zh;
     utter.onend = finish;
     utter.onerror = finish;
-    // 朗读过程中按字界心跳续期，慢语速不会被截断
+    // 真正开始朗读后再按宽裕估算续期；朗读中按字界心跳续期
+    utter.onstart = () => armWatchdog(10000 + text.length * 400);
     utter.onboundary = () => armWatchdog(ALIVE_WINDOW * 2);
     synth.speak(utter);
-    // 完全无事件的环境（如无语音后端）按宽裕估算兜底恢复
-    armWatchdog(10000 + text.length * 400);
+    // 4 秒内还没真正开口（被策略/系统静默拦截），快速恢复推演，避免长时间卡顿
+    armWatchdog(4000);
   };
-
-  // 新声音开始前，先停掉可能还在播的旧声音（叠音的根源）
-  stopCurrentAudio();
 
   // 合成请求兜底：15 秒还没拿到音频就改用系统语音
   armWatchdog(15000);
   speakWithCloud(text, settings)
     .then((audio) => {
-      if (done || usedSystem) return;
+      // 合成期间若有新播报/试听/拖动，会话号已变，本条直接作废（互斥由会话号保证）
+      if (done || usedSystem || stale()) return;
       ownAudio = audio;
       currentAudio = audio;
       audio.onended = finish;
       audio.onerror = fallbackSystem;
       // 播放中有进展就持续续期：语音再慢也不会被掐断
       audio.ontimeupdate = () => armWatchdog(ALIVE_WINDOW);
-      audio.play().catch(fallbackSystem);
+      audio.play().catch((err: unknown) => {
+        if ((err as { name?: string } | null)?.name === "NotAllowedError") {
+          // 浏览器自动播放策略拦截（如刷新后无用户手势）：跳过本条并提示点击解锁
+          onBlocked();
+          finish();
+          return;
+        }
+        fallbackSystem();
+      });
       armWatchdog(ALIVE_WINDOW);
     })
     .catch(fallbackSystem);
@@ -294,16 +315,67 @@ export default function MapBattleView({ script }: { script: GeoBattleScript }) {
   const [ready, setReady] = useState(false);
   const [voiceOn, setVoiceOn] = useState(true);
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
+  const [needsAudioGesture, setNeedsAudioGesture] = useState(false);
   const [tts, setTts] = useState<TtsSettings>(() => loadTtsSettings());
+
+  // 用户点击页面任意处后，浏览器恢复允许播放声音
+  useEffect(() => {
+    const clear = (): void => setNeedsAudioGesture(false);
+    window.addEventListener("pointerdown", clear);
+    return () => window.removeEventListener("pointerdown", clear);
+  }, []);
   const freeCamera = usePlayback((s) => s.freeCamera);
   const voiceOnRef = useRef(voiceOn);
   voiceOnRef.current = voiceOn;
   const ttsRef = useRef(tts);
   ttsRef.current = tts;
+  // 拖动/跳转进度时短暂禁止触发解说，避免连续触发导致叠音
+  const scrubbingRef = useRef(false);
+  const scrubTimerRef = useRef(0);
+  const seekResumeRef = useRef(false);
+  /** 解说暂停锁的起始时间，用于超时保险 */
+  const holdSinceRef = useRef(0);
+
+  /**
+   * 用户拖动时间轴 / 点击阶段标签：
+   * 掐断当前解说 → 暂停自动推进 → 跳转 → 松开 500ms 后按拖动前状态恢复播放。
+   */
+  const handleSeek = (t: number): void => {
+    const st = usePlayback.getState();
+    const wasHold = st.narrationHold;
+    if (!scrubbingRef.current) {
+      // 拖动开始：记住此前是否在推进（含解说暂停态），期间保持暂停
+      seekResumeRef.current = st.playing || wasHold;
+      if (st.playing) usePlayback.setState({ playing: false });
+    }
+    scrubbingRef.current = true;
+    window.clearTimeout(scrubTimerRef.current);
+    scrubTimerRef.current = window.setTimeout(() => {
+      scrubbingRef.current = false;
+      if (seekResumeRef.current) {
+        usePlayback.setState({ playing: true, narrationHold: false });
+      }
+      seekResumeRef.current = false;
+    }, 500);
+    stopCurrentAudio();
+    st.setTime(t);
+  };
 
   const handleTtsChange = (next: TtsSettings): void => {
     setTts(next);
     saveTtsSettings(next);
+  };
+
+  /** 重播：先作废旧解说（含其残余回调），再回到开场 */
+  const handleRestart = (): void => {
+    stopCurrentAudio();
+    usePlayback.getState().restart();
+  };
+
+  /** 解说播报中点「暂停」：停止解说并保持暂停（不恢复播放） */
+  const handleStopNarration = (): void => {
+    stopCurrentAudio();
+    usePlayback.setState({ narrationHold: false, playing: false });
   };
 
   /** 试听当前语音配置（先停掉正在播的解说，避免叠音） */
@@ -319,7 +391,11 @@ export default function MapBattleView({ script }: { script: GeoBattleScript }) {
         // fetch 期间可能又有新的试听/解说开始，播放前再次互斥
         stopCurrentAudio();
         currentAudio = audio;
-        audio.play().catch(() => undefined);
+        audio.play().catch((err: unknown) => {
+          if ((err as { name?: string } | null)?.name === "NotAllowedError") {
+            setNeedsAudioGesture(true);
+          }
+        });
       })
       .catch(() => {
         const synth = window.speechSynthesis;
@@ -358,8 +434,9 @@ export default function MapBattleView({ script }: { script: GeoBattleScript }) {
       maxZoom: 13,
     });
     mapRef.current = map;
-    // 调试句柄：控制台可直接访问地图实例（window.__warMap）
+    // 调试句柄：控制台可直接访问地图实例与播放状态
     (window as unknown as Record<string, unknown>).__warMap = map;
+    (window as unknown as Record<string, unknown>).__warPlayback = usePlayback;
 
     map.on("load", () => {
       // 计划路线：当前位置之后的剩余路径（淡虚线，预示调动方向）
@@ -516,6 +593,12 @@ export default function MapBattleView({ script }: { script: GeoBattleScript }) {
     setNarrationHold(false);
     restart();
     setDuration(script.duration);
+    // 进入后默认暂停，由用户手动点「自动推演」开始
+    usePlayback.setState({ playing: false });
+
+    // 每次进入 / 刷新都从头播放（清掉历史保存的播放位置）
+    window.sessionStorage.removeItem(`war3d.pos.${script.id}`);
+
     const spoken = { index: -1 };
     let flowAcc = 0;
     let flowStep = 0;
@@ -523,11 +606,25 @@ export default function MapBattleView({ script }: { script: GeoBattleScript }) {
     let raf = 0;
     let last = performance.now();
     const tick = (now: number) => {
-      // rAF 时间戳偶尔早于上一帧记录，钳到非负，避免时间倒退
-      const dt = Math.max(0, Math.min(0.1, (now - last) / 1000));
+      // rAF 时间戳偶尔早于上一帧记录，钳到非负；上限放宽到 1.5s，
+      // 保证定时器兜底（窗口遮挡/后台时 rAF 被浏览器暂停）也能按真实时间推进
+      const dt = Math.max(0, Math.min(1.5, (now - last) / 1000));
       last = now;
       const s = usePlayback.getState();
       if (s.playing) s.advance(dt);
+
+      // 解说锁超时保险：异常环境下音频回调可能永不触发，
+      // 超过 90 秒仍锁着就强制恢复推演，避免"永远停住"
+      if (s.narrationHold && !s.playing) {
+        if (holdSinceRef.current === 0) {
+          holdSinceRef.current = performance.now();
+        } else if (performance.now() - holdSinceRef.current > 90000) {
+          usePlayback.setState({ narrationHold: false, playing: true });
+          holdSinceRef.current = 0;
+        }
+      } else {
+        holdSinceRef.current = 0;
+      }
 
       // 流动虚线相位推进（暂停时冻结）
       if (s.playing) {
@@ -550,17 +647,28 @@ export default function MapBattleView({ script }: { script: GeoBattleScript }) {
         idx > spoken.index &&
         voiceOnRef.current &&
         s.playing &&
-        !s.narrationHold
+        !s.narrationHold &&
+        !scrubbingRef.current
       ) {
         const ev = script.events[Math.max(0, idx - 1)];
         usePlayback.setState({ playing: false, narrationHold: true });
-        speakEvent(ev, ttsRef.current, () => {
-          if (usePlayback.getState().narrationHold) {
-            usePlayback.setState({ narrationHold: false, playing: true });
-          }
-        });
+        speakEvent(
+          ev,
+          ttsRef.current,
+          () => {
+            if (usePlayback.getState().narrationHold) {
+              usePlayback.setState({ narrationHold: false, playing: true });
+            }
+          },
+          () => setNeedsAudioGesture(true)
+        );
+        spoken.index = idx;
+      } else if (idx > spoken.index && (!voiceOnRef.current || scrubbingRef.current)) {
+        // 静音 / 拖动中：静默推进进度，避免之后恢复时补播积压
+        spoken.index = idx;
       }
-      spoken.index = idx;
+      // 注意：暂停状态（playing=false 且非静音/拖动）不推进 spoken.index，
+      // 这样在 D+0 暂停后点播放，会从头播报第一条解说
 
       // 单位位置、可见性、朝向与机动状态
       for (const u of script.units) {
@@ -648,10 +756,23 @@ export default function MapBattleView({ script }: { script: GeoBattleScript }) {
         map.jumpTo(cameraAt(script, s.time));
       }
 
-      raf = requestAnimationFrame(tick);
     };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+
+    // 主循环走 rAF（流畅）；窗口被遮挡或切到后台时浏览器会暂停 rAF，
+    // 用心跳定时器兜底，保证推演始终按真实时间推进（录屏时尤其关键）
+    const loop = (now: number): void => {
+      tick(now);
+      raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+    const heartbeat = window.setInterval(() => {
+      if (performance.now() - last > 400) tick(performance.now());
+    }, 250);
+
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearInterval(heartbeat);
+    };
   }, [ready, script]);
 
   const toggleVoice = (): void => {
@@ -679,6 +800,10 @@ export default function MapBattleView({ script }: { script: GeoBattleScript }) {
         tts={tts}
         onTtsChange={handleTtsChange}
         onPreviewVoice={previewVoice}
+        onSeek={handleSeek}
+        onRestart={handleRestart}
+        onStopNarration={handleStopNarration}
+        needsAudioGesture={needsAudioGesture}
       />
     </div>
   );
